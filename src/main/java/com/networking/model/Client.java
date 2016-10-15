@@ -1,6 +1,8 @@
 package com.networking.model;
 
+import com.networking.*;
 import com.networking.config.*;
+import com.networking.misc.*;
 
 import java.io.*;
 import java.net.*;
@@ -36,16 +38,19 @@ public class Client implements Runnable {
 
     public synchronized void addPeer(Peer peer) {
         peers.add(peer);
+        peer.start();
     }
 
     private synchronized void connect(PeerConfig pConfig) throws IOException {
         // open socket to pConfig.
         Socket socket = new Socket(pConfig.getHost(), pConfig.getPort());
-        addPeer(new Peer(socket, this));
+        Peer p = new Peer(socket, this);
+        addPeer(p);
+        Logger.INSTANCE.println("Peer <" + getClientID() + "> makes a connection to Peer <" + p.getPeerID() + ">");
     }
 
     public void run() {
-        System.out.println("Starting client with ID <" + getClientID() + "> on port <" + clientCfg.getPort() + ">");
+        Logger.INSTANCE.println("Starting client with ID <" + getClientID() + "> on port <" + clientCfg.getPort() + ">");
         // connect to lower peers
         for (PeerConfig pConfig : PeerConfig.PEER_CONFIGS) {
             if (pConfig.getPeerID() < clientCfg.getPeerID()) {
@@ -53,8 +58,8 @@ public class Client implements Runnable {
                     connect(pConfig);
                 } catch (IOException ex) {
                     // fatally exit if we can't connect to a prior peer
-                    System.out.println("Error connecting to peer <" + pConfig.getPeerID() + ">, terminating.");
-                    System.exit(1);
+                    Logger.INSTANCE.println("Error connecting to peer <" + pConfig.getPeerID() + ">, terminating.");
+                    Bootstrap.stackExit(ex);
                 }
             }
         }
@@ -95,11 +100,13 @@ public class Client implements Runnable {
             ServerSocket server = new ServerSocket(clientCfg.getPort());
             do {
                 Socket socket = server.accept();
-                addPeer(new Peer(socket, this));
+                Peer p = new Peer(socket, this);
+                addPeer(p);
+                Logger.INSTANCE.println("Peer <" + getClientID() + "> is connected from Peer <" + p.getPeerID() + ">");
             } while(true);
         } catch (Exception ex) {
-            System.out.println("Error running server socket, terminating.");
-            System.exit(1);
+            Logger.INSTANCE.println("Error running server socket, terminating.");
+            Bootstrap.stackExit(ex);
         }
     }
 }

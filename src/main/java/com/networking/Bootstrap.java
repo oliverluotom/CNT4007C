@@ -7,6 +7,8 @@ import com.networking.model.*;
  * Starts up a BitTorrent client with the given peer id.
  */
 public class Bootstrap {
+    public static final boolean DEBUG = true;
+
     public static void main(String[] args) {
         int cc = CommonConfig.getPreferredCount();
         PeerConfig clientCfg = null;
@@ -24,5 +26,10 @@ public class Bootstrap {
         }
         Client cl = new Client(clientCfg);
         cl.run();
+    }
+
+    public static void stackExit(Exception ex) {
+        if (DEBUG) ex.printStackTrace();
+        System.exit(1);
     }
 }
