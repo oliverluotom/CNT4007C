@@ -65,6 +65,14 @@ public class CommonConfig {
         return file;
     }
 
+    public static int getFileSize() {
+        return fileSize;
+    }
+
+    public static int getNumFilePieces() {
+        return (int) Math.ceil(1.*getFileSize()/getPieceSize());
+    }
+
     public static int getPieceSize() {
         return pieceSize;
     }

@@ -7,11 +7,11 @@ public class Logger {
 
     private Logger() { }
 
-    public void print(String str) {
+    public synchronized void print(String str) {
         System.out.print("[" + new Date().toString() + "]: " + str);
     }
 
-    public void println(String str) {
+    public synchronized void println(String str) {
         print(str + "\n");
     }
 }
