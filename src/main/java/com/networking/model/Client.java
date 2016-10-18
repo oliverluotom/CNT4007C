@@ -20,9 +20,8 @@ public class Client implements Runnable {
     private final PeerConfig clientCfg;
     private final ArrayList<Peer> peers = new ArrayList<Peer>();
     
-    private final BitSet bitfield; //tracks which pieces we have
+    private final BitSet piecesObtained; //tracks which pieces we have
     private final byte[][] fileMap; //each row is a piece
-    private final Queue<Integer> pieceQueue = new LinkedList<Integer>();
 
    /************************************************************************
     * Interface                                                            *
@@ -30,29 +29,32 @@ public class Client implements Runnable {
     /* =============== Initializors =============== */
     public Client(PeerConfig clientCfg) {
         this.clientCfg = clientCfg;
-        // initialize bitfield
-        bitfield = new BitSet(getFileSize());
+        
+        piecesObtained = new BitSet(getNumFilePieces());
         fileMap = new byte[getNumFilePieces()][];
+        
         if (clientCfg.hasFile()) {
-            bitfield.flip(0, getFileSize());
-            // set up fileMap (map of piece idx to the actual piece)
-            int pieceIdx = 0;
-            for(int byteLo = 0; byteLo < getFileSize(); byteLo += getPieceSize()) {
-                // take [byteLo, byteLo+CommonConfig.getPieceSize()-1]
-                // len helps us for last byte[] that could be missing
+            /* Set the entire bitfield because we have every byte */
+            piecesObtained.flip(0, getFileSize());
+            /* Set up the fileMap (map of piece idx to the actual piece) */
+            for(int byteLo = 0, pieceIdx = 0; 
+                    byteLo < getFileSize();
+                    byteLo += getPieceSize()) {
+                /*
+                 * Take [byteLo, byteLo+len-1] for the current piece.
+                 * len is always getPieceSize() for all but the last piece.
+                 * The last piece may be smaller than the piece size if the
+                 * file is not divisible by the piece size 
+                 */
                 int len = Math.min(getPieceSize(), getFileSize()-byteLo);
                 byte[] pieceArr = new byte[len];
                 for (int bytePtr = byteLo; bytePtr < (byteLo+len); bytePtr++) {
                     pieceArr[bytePtr-byteLo] = getFile()[bytePtr];
                 }
+                /* Store the current piece in the file map */
                 fileMap[pieceIdx++] = pieceArr;
             }
-        } else {
-            // fill in queue of missing pieces (all of them at the beginning)
-            for (int i = 0; i < getNumFilePieces(); i++) {
-                pieceQueue.add(i);
-            }
-        }
+        } 
     }
 
     /* =============== Accessors =============== */
@@ -61,45 +63,46 @@ public class Client implements Runnable {
     }
 
     public BitSet getBitfield() {
-        return bitfield;
+        return piecesObtained;
     }
 
-    public byte[] getPiece(int pieceId) {
+    public synchronized byte[] getPiece(int pieceId) {
         if (pieceId >= fileMap.length) return null;
         return fileMap[pieceId];
     }
     
     public synchronized int getNumMissingPieces() {
-        int cnt = 0;
-        for (int i = 0; i < fileMap.length; i++) if (fileMap[i] == null) cnt++;
-        return cnt;
+        return piecesObtained.size() - piecesObtained.cardinality();
     }
     
-    public synchronized int getMissingPiece(BitSet bitfield) {
-        int count = pieceQueue.size();
-        while (count-->0) {
-            int pop = pieceQueue.poll();
-            if (bitfield.get(pop)) return pop;
-            pieceQueue.add(pop); // add to end of queue
+    public synchronized int getMissingPiece(BitSet piecesOffered) {
+        /* Find all pieces they have and we don't */
+        List<Integer> validPieces = new ArrayList<Integer>();
+        for(int i = 0; i < piecesOffered.length(); ++i){
+            if(!piecesObtained.get(i) && piecesOffered.get(i)){
+                validPieces.add(i);
+            }
         }
-        return -1;
+        /* If there weren't any, fail */
+        if(validPieces.size() == 0) return -1;
+        /* Otherwise return a random piece from the valid set */
+        int randomPiece = (int) (validPieces.size()*Math.random());
+        return validPieces.get(randomPiece);
     }
     
     public synchronized int numPeersDone() {
         int cnt = 0;
-        for (Peer p : peers) {
-            if (p.hasCompleteFile()) cnt++;
-        }
+        for (Peer p : peers) if (p.hasCompleteFile()) ++cnt;
         return cnt;
     }
 
     /* =============== Mutators =============== */
-    public synchronized void setPiece(int pieceId, byte[] pieceArr) {
-        bitfield.set(pieceId, true);
-        fileMap[pieceId] = pieceArr;
+    public synchronized void setPiece(int pieceID, byte[] pieceArr) {
+        piecesObtained.set(pieceID, true);
+        fileMap[pieceID] = pieceArr;
         for (Peer p : peers) {
             try {
-                p.sendHavePacket(pieceId);
+                p.sendHavePacket(pieceID);
             } catch (IOException ex) {
                 Bootstrap.stackExit(ex);
             }
@@ -111,6 +114,7 @@ public class Client implements Runnable {
         peer.start();
     }
 
+    //placeholder for matt k.
     public synchronized void dataUnchoke() {
         // will be called by a timer asynchronously
         TreeMap<Double, Peer> rateMap = new TreeMap<Double, Peer>(Collections.reverseOrder());

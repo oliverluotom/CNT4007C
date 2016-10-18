@@ -10,20 +10,24 @@ public class Bootstrap {
     public static final boolean DEBUG = true;
 
     public static void main(String[] args) {
-        int cc = CommonConfig.getPreferredCount();
+        /* Look through the peer configs for our config */
         PeerConfig clientCfg = null;
         try {
             int peerId = Integer.parseInt(args[0]);
             for (PeerConfig cfg : PeerConfig.PEER_CONFIGS) {
+                /* If we find it, remember it and break */
                 if (cfg.getPeerID() == peerId) {
                     clientCfg = cfg;
+                    break;
                 }
             }
+            /* If we didn't find it, terminate with exception */
             if (clientCfg == null) throw new Exception();
         } catch (Exception ex) {
             System.out.println("Example Usage: <run program> [peerId]");
-            System.exit(1);
+            stackExit(ex);
         }
+        /* Create and run the client with its config */
         Client cl = new Client(clientCfg);
         cl.run();
     }
