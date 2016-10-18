@@ -34,7 +34,7 @@ public class Client implements Runnable {
         fileMap = new byte[getNumFilePieces()][];
         
         if (clientCfg.hasFile()) {
-            /* Set the entire bitfield because we have every byte */
+            /* Set the entire bitfield because we have every piece */
             piecesObtained.flip(0, piecesObtained.size());
             /* Set up the fileMap (map of piece idx to the actual piece) */
             for(int byteLo = 0, pieceIdx = 0; 
