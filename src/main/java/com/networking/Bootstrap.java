@@ -25,7 +25,7 @@ public class Bootstrap {
             if (clientCfg == null) throw new Exception();
         } catch (Exception ex) {
             System.out.println("Example Usage: <run program> [peerId]");
-            stackExit(ex);
+            System.exit(1);
         }
         /* Create and run the client with its config */
         Client cl = new Client(clientCfg);

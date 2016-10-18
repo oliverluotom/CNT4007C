@@ -25,20 +25,20 @@ public class Peer extends Thread {
 
     private final int peerID;
     private final Client client;
-    
+
     private final DataOutputStream dos;
     private final DataInputStream dis;
-    
+
     private long timeCreated = System.currentTimeMillis();
     private BitSet bitfield = new BitSet(); //tracks which pieces peer has
-    
+
     private boolean dataChoked = true; //initially everyone is data choked
     private boolean randomChoked = true; //initially everyone is randomly choked
     private boolean areWeChoked = true; //has this peer choked our client
-    
+
     private long totalBytesDownloaded = 0;
     private boolean interested = false; //initially not interested
-    
+
    /************************************************************************
     * Interface                                                            *
     ************************************************************************/
@@ -85,7 +85,7 @@ public class Peer extends Thread {
     public synchronized boolean areWeChoked() {
         return areWeChoked;
     }
-    
+
     public synchronized boolean hasCompleteFile() {
         for (int i = 0; i < CommonConfig.getNumFilePieces(); i++) {
             if (!bitfield.get(i)) return false;
@@ -131,7 +131,7 @@ public class Peer extends Thread {
             sendChokePacket();
         }
     }
-    
+
     /* =============== Behaviors =============== */
     @Override
     public void run() {
@@ -148,7 +148,7 @@ public class Peer extends Thread {
             Bootstrap.stackExit(ex);
         }
     }
-    
+
     // gets called by Client
     public synchronized void sendHavePacket(int pieceId) throws IOException {
         Packet havePacket = new Packet(Packet.PacketType.HAVE, Packet.serializeInt(pieceId));
@@ -170,42 +170,42 @@ public class Peer extends Thread {
         }
         sendRequestPacket(requestPiece);
     }
-    
+
     /* =============== Packet Senders =============== */
     private synchronized void sendChokePacket() throws IOException {
         // we're choking this peer
         Packet chokePacket = new Packet(Packet.PacketType.CHOKE, new byte[0]);
         sendPacket(chokePacket);
     }
-    
+
     private synchronized void sendUnchokePacket() throws IOException {
         // we're unchoking this peer
         Packet unchokePacket = new Packet(Packet.PacketType.UNCHOKE, new byte[0]);
         sendPacket(unchokePacket);
     }
-    
+
     private synchronized void sendRequestPacket(int pieceId) throws IOException {
         Packet requestPacket = new Packet(Packet.PacketType.REQUEST, Packet.serializeInt(pieceId));
         sendPacket(requestPacket);
     }
-    
+
     private synchronized void sendPiecePacket(int pieceId, byte[] pieceArr) throws IOException {
         byte[] payload = Packet.mergePayloads(Packet.serializeInt(pieceId), pieceArr);
         Packet piecePacket = new Packet(Packet.PacketType.PIECE, payload);
         sendPacket(piecePacket);
     }
-    
+
     private synchronized void sendBitfieldPacket() throws IOException {
         byte[] payload = getClient().getBitfield().toByteArray();
         Packet bitPacket = new Packet(Packet.PacketType.BITFIELD, payload);
         sendPacket(bitPacket);
     }
-    
+
     private synchronized void sendInterestedPacket() throws IOException {
         Packet intPacket = new Packet(Packet.PacketType.INTERESTED, new byte[0]);
         sendPacket(intPacket);
     }
-    
+
     private synchronized void sendNotInterestedPacket() throws IOException {
         Packet nIntPacket = new Packet(Packet.PacketType.NOT_INTERESTED, new byte[0]);
         sendPacket(nIntPacket);
@@ -242,7 +242,7 @@ public class Peer extends Thread {
                 Logger.INSTANCE.println("Unhandled packet type: " + packet.getPacketType());
         }
     }
-    
+
     private synchronized void handleChokePacket(Packet packet) throws IOException {
         // client just got choked by this peer
         // can't do anything in this case
@@ -267,7 +267,7 @@ public class Peer extends Thread {
             sendPiecePacket(pieceId, pieceArr);
         } else {
             // invalid piece...throw runtime exception
-            throw new RuntimeException("Invalid piece requested by Peer <" + getPeerID() + ">");
+            throw new RuntimeException("Invalid piece <" + pieceId + "> requested by Peer <" + getPeerID() + ">");
         }
     }
 

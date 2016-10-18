@@ -19,9 +19,11 @@ public class Client implements Runnable {
     ************************************************************************/
     private final PeerConfig clientCfg;
     private final ArrayList<Peer> peers = new ArrayList<Peer>();
-    
+
     private final BitSet piecesObtained; //tracks which pieces we have
     private final byte[][] fileMap; //each row is a piece
+
+    private final Queue<Integer> pieceQueue = new LinkedList<Integer>();
 
    /************************************************************************
     * Interface                                                            *
@@ -29,22 +31,22 @@ public class Client implements Runnable {
     /* =============== Initializors =============== */
     public Client(PeerConfig clientCfg) {
         this.clientCfg = clientCfg;
-        
+
         piecesObtained = new BitSet(getNumFilePieces());
         fileMap = new byte[getNumFilePieces()][];
-        
+
         if (clientCfg.hasFile()) {
             /* Set the entire bitfield because we have every piece */
-            piecesObtained.flip(0, piecesObtained.size());
+            piecesObtained.flip(0, getNumFilePieces());
             /* Set up the fileMap (map of piece idx to the actual piece) */
-            for(int byteLo = 0, pieceIdx = 0; 
+            for(int byteLo = 0, pieceIdx = 0;
                     byteLo < getFileSize();
                     byteLo += getPieceSize()) {
                 /*
                  * Take [byteLo, byteLo+len-1] for the current piece.
                  * len is always getPieceSize() for all but the last piece.
                  * The last piece may be smaller than the piece size if the
-                 * file is not divisible by the piece size 
+                 * file is not divisible by the piece size
                  */
                 int len = Math.min(getPieceSize(), getFileSize()-byteLo);
                 byte[] pieceArr = new byte[len];
@@ -54,7 +56,12 @@ public class Client implements Runnable {
                 /* Store the current piece in the file map */
                 fileMap[pieceIdx++] = pieceArr;
             }
-        } 
+        } else {
+            // fill in queue of missing pieces (all of them at the beginning)
+            for (int i = 0; i < getNumFilePieces(); i++) {
+                pieceQueue.add(i);
+            }
+        }
     }
 
     /* =============== Accessors =============== */
@@ -70,26 +77,23 @@ public class Client implements Runnable {
         if (pieceId >= fileMap.length) return null;
         return fileMap[pieceId];
     }
-    
+
     public synchronized int getNumMissingPieces() {
-        return piecesObtained.size() - piecesObtained.cardinality();
+        return getNumFilePieces() - piecesObtained.cardinality();
     }
-    
+
     public synchronized int getMissingPiece(BitSet piecesOffered) {
-        /* Find all pieces they have and we don't */
-        List<Integer> validPieces = new ArrayList<Integer>();
-        for(int i = 0; i < piecesOffered.length(); ++i){
-            if(!piecesObtained.get(i) && piecesOffered.get(i)){
-                validPieces.add(i);
-            }
+        // This intentionally uses a queue, in order to avoid requesting
+        // the same piece from two different peers.
+        int count = pieceQueue.size();
+        while (count-->0) {
+            int pop = pieceQueue.poll();
+            if (piecesOffered.get(pop)) return pop;
+            pieceQueue.add(pop); // add to end of queue
         }
-        /* If there weren't any, fail */
-        if(validPieces.size() == 0) return -1;
-        /* Otherwise return a random piece from the valid set */
-        int randomPiece = (int) (validPieces.size()*Math.random());
-        return validPieces.get(randomPiece);
+        return -1;
     }
-    
+
     public synchronized int numPeersDone() {
         int cnt = 0;
         for (Peer p : peers) if (p.hasCompleteFile()) ++cnt;
@@ -108,7 +112,7 @@ public class Client implements Runnable {
             }
         }
     }
-    
+
     public synchronized void addPeer(Peer peer) {
         peers.add(peer);
         peer.start();
@@ -163,17 +167,17 @@ public class Client implements Runnable {
             }
         }
     }
-    
+
     /* =============== Behaviors =============== */
     @Override
     public void run() {
         Logger.INSTANCE.println(
-                "Starting client with ID <" + getClientID() + 
+                "Starting client with ID <" + getClientID() +
                 "> on port <" + clientCfg.getPort() + ">");
         connectToLowerPeers();
         startDataUnchoker();
-        //startRandomUnchoker();
-        startShutdownThread();
+        startRandomUnchoker();
+        //startShutdownThread();
         // listen for higher peers
         try {
             ServerSocket server = new ServerSocket(clientCfg.getPort());
@@ -188,7 +192,7 @@ public class Client implements Runnable {
             Bootstrap.stackExit(ex);
         }
     }
-    
+
    /************************************************************************
     * Private                                                              *
     ************************************************************************/
@@ -200,7 +204,7 @@ public class Client implements Runnable {
         addPeer(p);
         Logger.INSTANCE.println("Peer <" + getClientID() + "> makes a connection to Peer <" + p.getPeerID() + ">");
     }
-    
+
     /* =============== Run Subtasks =============== */
     private void connectToLowerPeers(){
         for (PeerConfig pConfig : PeerConfig.PEER_CONFIGS) {
@@ -215,7 +219,7 @@ public class Client implements Runnable {
             }
         }
     }
-    
+
     private void startDataUnchoker(){
         new Thread("Data Unchoker") {
             long lastChoke = 0;
@@ -233,7 +237,7 @@ public class Client implements Runnable {
             }
         }.start();
     }
-    
+
     private void startRandomUnchoker(){
         new Thread("Random Unchoker") {
             long lastChoke = System.currentTimeMillis();
@@ -251,7 +255,7 @@ public class Client implements Runnable {
             }
         }.start();
     }
-    
+
     private void startShutdownThread(){
         new Thread("Shutdown") {
             public void run() {
