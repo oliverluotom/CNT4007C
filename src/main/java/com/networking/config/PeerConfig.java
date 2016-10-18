@@ -12,7 +12,9 @@ public class PeerConfig {
         Scanner sc =
             new Scanner(CommonConfig.class.getResourceAsStream(CFG_FILE_PATH));
         while (sc.hasNextLine()) {
-            PEER_CONFIGS.add(parseConfig(sc.nextLine()));
+            PeerConfig conf = parseConfig(sc.nextLine());
+            if (conf == null) continue;
+            PEER_CONFIGS.add(conf);
         }
     }
 
@@ -45,6 +47,7 @@ public class PeerConfig {
 
     private static PeerConfig parseConfig(String line) {
         String[] spl = line.split(" ");
+        if (spl[0].equals("#")) return null; // commented out
         return new PeerConfig(Integer.parseInt(spl[0]),
             spl[1],
             Integer.parseInt(spl[2]),

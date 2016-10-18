@@ -20,6 +20,7 @@ public class Client implements Runnable {
     private final PeerConfig clientCfg;
     private final ArrayList<Peer> peers = new ArrayList<Peer>();
 
+    private final Object BITFIELD_LOCK = new Object(); // lock for both things below
     private final BitSet piecesObtained; //tracks which pieces we have
     private final byte[][] fileMap; //each row is a piece
 
@@ -69,64 +70,91 @@ public class Client implements Runnable {
         return clientCfg.getPeerID();
     }
 
-    public BitSet getBitfield() {
-        return piecesObtained;
+    public byte[] getBitfieldArray() {
+        synchronized (BITFIELD_LOCK) {
+            return piecesObtained.toByteArray();
+        }
     }
 
-    public synchronized byte[] getPiece(int pieceId) {
-        if (pieceId >= fileMap.length) return null;
-        return fileMap[pieceId];
+    public boolean hasPiece(int pieceID) {
+        synchronized (BITFIELD_LOCK) {
+            return piecesObtained.get(pieceID);
+        }
     }
 
-    public synchronized int getNumMissingPieces() {
-        return getNumFilePieces() - piecesObtained.cardinality();
+    public byte[] getPiece(int pieceId) {
+        synchronized (BITFIELD_LOCK) {
+            if (pieceId >= fileMap.length) return null;
+            return fileMap[pieceId];
+        }
     }
 
-    public synchronized int getMissingPiece(BitSet piecesOffered) {
+    public int getNumMissingPieces() {
+        synchronized (BITFIELD_LOCK) {
+            return getNumFilePieces() - piecesObtained.cardinality();
+        }
+    }
+
+    public int getMissingPiece(BitSet piecesOffered) {
         // This intentionally uses a queue, in order to avoid requesting
         // the same piece from two different peers.
-        int count = pieceQueue.size();
-        while (count-->0) {
-            int pop = pieceQueue.poll();
-            if (piecesOffered.get(pop)) return pop;
-            pieceQueue.add(pop); // add to end of queue
+        synchronized (pieceQueue) {
+            int count = pieceQueue.size();
+            while (count-->0) {
+                int pop = pieceQueue.poll();
+                if (piecesOffered.get(pop)) return pop;
+                pieceQueue.add(pop); // add to end of queue
+            }
         }
         return -1;
     }
 
-    public synchronized int numPeersDone() {
+    public int numPeersDone() {
         int cnt = 0;
-        for (Peer p : peers) if (p.hasCompleteFile()) ++cnt;
+        synchronized (peers) {
+            for (Peer p : peers) if (p.hasCompleteFile()) ++cnt;
+        }
         return cnt;
     }
 
     /* =============== Mutators =============== */
-    public synchronized void setPiece(int pieceID, byte[] pieceArr) {
-        piecesObtained.set(pieceID, true);
-        fileMap[pieceID] = pieceArr;
-        for (Peer p : peers) {
-            try {
-                p.sendHavePacket(pieceID);
-            } catch (IOException ex) {
-                Bootstrap.stackExit(ex);
+    public void setPiece(int pieceID, byte[] pieceArr) {
+        // set piece stuff
+        synchronized (BITFIELD_LOCK) {
+            piecesObtained.set(pieceID, true);
+            fileMap[pieceID] = pieceArr;
+        }
+        // send 'have' packet to all peers
+        synchronized (peers) {
+            for (Peer p : peers) {
+                try {
+                    p.sendHavePacket(pieceID);
+                } catch (IOException ex) {
+                    Bootstrap.stackExit(ex);
+                }
             }
         }
     }
 
-    public synchronized void addPeer(Peer peer) {
-        peers.add(peer);
+    public void addPeer(Peer peer) {
+        synchronized (peers) {
+            peers.add(peer);
+        }
         peer.start();
     }
 
     //placeholder for matt k.
-    public synchronized void dataUnchoke() {
+    public void dataUnchoke() {
         // will be called by a timer asynchronously
         TreeMap<Double, Peer> rateMap = new TreeMap<Double, Peer>(Collections.reverseOrder());
-        for (Peer p : peers) {
-            double rate = p.getDownloadRate();
-            if (getNumMissingPieces() == 0) rate = 1.; // make all peers equals
-            if (p.hasCompleteFile()) rate = 0.; // we want peers with complete file to sink down...
-            rateMap.put(rate, p);
+        boolean hasMissingPiece = getNumMissingPieces() != 0;
+        synchronized (peers) {
+            for (Peer p : peers) {
+                double rate = p.getDownloadRate();
+                if (!hasMissingPiece) rate = 1.; // make all peers equals
+                if (p.hasCompleteFile()) continue; // don't consider peers with full file
+                rateMap.put(rate, p);
+            }
         }
         int idx = 0;
         ArrayList<Integer> neighborIDs = new ArrayList<Integer>();
@@ -148,12 +176,14 @@ public class Client implements Runnable {
         Logger.INSTANCE.println("Peer <" + getClientID() + "> has the preferred neighbors " + neighborIDs.toString() + ".");
     }
 
-    public synchronized void randomUnchoke() {
+    public void randomUnchoke() {
         // will be called by a timer asynchronously
         ArrayList<Peer> chokedPeers = new ArrayList<Peer>();
-        for (Peer p : peers) {
-            if (p.isChoked() && !p.hasCompleteFile()) {
-                chokedPeers.add(p);
+        synchronized (peers) {
+            for (Peer p : peers) {
+                if (p.isChoked() && !p.hasCompleteFile()) {
+                    chokedPeers.add(p);
+                }
             }
         }
         Collections.shuffle(chokedPeers);
@@ -177,7 +207,7 @@ public class Client implements Runnable {
         connectToLowerPeers();
         startDataUnchoker();
         startRandomUnchoker();
-        //startShutdownThread();
+        startShutdownThread();
         // listen for higher peers
         try {
             ServerSocket server = new ServerSocket(clientCfg.getPort());
@@ -197,7 +227,7 @@ public class Client implements Runnable {
     * Private                                                              *
     ************************************************************************/
     /* =============== Connection =============== */
-    private synchronized void connect(PeerConfig pConfig) throws IOException {
+    private void connect(PeerConfig pConfig) throws IOException {
         // open socket to pConfig.
         Socket socket = new Socket(pConfig.getHost(), pConfig.getPort());
         Peer p = new Peer(socket, this);
@@ -206,7 +236,7 @@ public class Client implements Runnable {
     }
 
     /* =============== Run Subtasks =============== */
-    private void connectToLowerPeers(){
+    private void connectToLowerPeers() {
         for (PeerConfig pConfig : PeerConfig.PEER_CONFIGS) {
             if (pConfig.getPeerID() < clientCfg.getPeerID()) {
                 try {
@@ -220,8 +250,8 @@ public class Client implements Runnable {
         }
     }
 
-    private void startDataUnchoker(){
-        new Thread("Data Unchoker") {
+    private void startDataUnchoker() {
+        new Thread("Data Unchoker Thread") {
             long lastChoke = 0;
             public void run() {
                 while (true) {
@@ -238,8 +268,8 @@ public class Client implements Runnable {
         }.start();
     }
 
-    private void startRandomUnchoker(){
-        new Thread("Random Unchoker") {
+    private void startRandomUnchoker() {
+        new Thread("Random Unchoker Thread") {
             long lastChoke = System.currentTimeMillis();
             public void run() {
                 while (true) {
@@ -256,8 +286,8 @@ public class Client implements Runnable {
         }.start();
     }
 
-    private void startShutdownThread(){
-        new Thread("Shutdown") {
+    private void startShutdownThread() {
+        new Thread("Shutdown Thread") {
             public void run() {
                 while (true) {
                     if (numPeersDone() == PeerConfig.PEER_CONFIGS.size()-1) {

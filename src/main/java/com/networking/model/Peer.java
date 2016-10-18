@@ -26,12 +26,15 @@ public class Peer extends Thread {
     private final int peerID;
     private final Client client;
 
+    private final Object SOCKET_LOCK = new Object();
     private final DataOutputStream dos;
     private final DataInputStream dis;
 
     private long timeCreated = System.currentTimeMillis();
+    private final Object BITFIELD_LOCK = new Object();
     private BitSet bitfield = new BitSet(); //tracks which pieces peer has
 
+    private final Object CHOKE_LOCK = new Object();
     private boolean dataChoked = true; //initially everyone is data choked
     private boolean randomChoked = true; //initially everyone is randomly choked
     private boolean areWeChoked = true; //has this peer choked our client
@@ -81,56 +84,67 @@ public class Peer extends Thread {
     }
 
     public boolean isChoked() {
-        return dataChoked && randomChoked;
+        synchronized (CHOKE_LOCK) {
+            return dataChoked && randomChoked;
+        }
     }
 
-    public synchronized boolean areWeChoked() {
+    // only gets called by Peer thread
+    public boolean areWeChoked() {
         return areWeChoked;
     }
 
-    public synchronized boolean hasCompleteFile() {
-        for (int i = 0; i < CommonConfig.getNumFilePieces(); i++) {
-            if (!bitfield.get(i)) return false;
+    // can get called by Client threads as well as peer thread
+    public boolean hasCompleteFile() {
+        synchronized (BITFIELD_LOCK) {
+            for (int i = 0; i < CommonConfig.getNumFilePieces(); i++) {
+                if (!bitfield.get(i)) return false;
+            }
+            return true;
         }
-        return true;
     }
 
     /* =============== Mutators =============== */
-    public synchronized void setAreWeChoked(boolean val) {
+    // only gets called by Peer thread
+    public void setAreWeChoked(boolean val) {
         areWeChoked = val;
     }
 
-    public synchronized void setDataChoke(boolean val) throws IOException {
-        boolean isOldChoked = isChoked();
-        dataChoked = val;
-        boolean isNewChoked = isChoked();
+    public void setDataChoke(boolean val) throws IOException {
+        synchronized (CHOKE_LOCK) {
+            boolean isOldChoked = isChoked();
+            dataChoked = val;
+            boolean isNewChoked = isChoked();
 
-        // TODO: May need to make this a "refreshChoke()" function (to avoid weirdness).
-        // Actually, probably not.
-        if (isOldChoked && !isNewChoked) {
-            //unchoking, we reset timer/downloaded bytes since
-            //download rate wants for LAST unchoked interval
-            totalBytesDownloaded = 0;
-            timeCreated = System.currentTimeMillis();
-            sendUnchokePacket();
-        } else if (!isOldChoked && isNewChoked) {
-            //choking
-            sendChokePacket();
+            // TODO: May need to make this a "refreshChoke()" function (to avoid weirdness).
+            // Actually, probably not.
+            if (isOldChoked && !isNewChoked) {
+                //unchoking, we reset timer/downloaded bytes since
+                //download rate wants for LAST unchoked interval
+                totalBytesDownloaded = 0;
+                timeCreated = System.currentTimeMillis();
+                sendUnchokePacket();
+            } else if (!isOldChoked && isNewChoked) {
+                //choking
+                sendChokePacket();
+            }
         }
     }
 
-    public synchronized void setRandomChoke(boolean val) throws IOException {
-        boolean isOldChoked = isChoked();
-        randomChoked = val;
-        boolean isNewChoked = isChoked();
-        if (isOldChoked && !isNewChoked) {
-            //unchoking, we reset timer/downloaded bytes since
-            //download rate wants for LAST unchoked interval
-            totalBytesDownloaded = 0;
-            sendUnchokePacket();
-        } else if (!isOldChoked && isNewChoked) {
-            //choking
-            sendChokePacket();
+    public void setRandomChoke(boolean val) throws IOException {
+        synchronized (CHOKE_LOCK) {
+            boolean isOldChoked = isChoked();
+            randomChoked = val;
+            boolean isNewChoked = isChoked();
+            if (isOldChoked && !isNewChoked) {
+                //unchoking, we reset timer/downloaded bytes since
+                //download rate wants for LAST unchoked interval
+                totalBytesDownloaded = 0;
+                sendUnchokePacket();
+            } else if (!isOldChoked && isNewChoked) {
+                //choking
+                sendChokePacket();
+            }
         }
     }
 
@@ -154,8 +168,8 @@ public class Peer extends Thread {
     }
 
     // gets called by Client
-    public synchronized void sendHavePacket(int pieceId) throws IOException {
-        Packet havePacket = new Packet(Packet.PacketType.HAVE, Packet.serializeInt(pieceId));
+    public void sendHavePacket(int pieceID) throws IOException {
+        Packet havePacket = new Packet(Packet.PacketType.HAVE, Packet.serializeInt(pieceID));
         sendPacket(havePacket);
     }
 
@@ -163,7 +177,8 @@ public class Peer extends Thread {
     * Private                                                              *
     ************************************************************************/
     /* =============== Network Commands =============== */
-    private synchronized void requestDownload() throws IOException {
+    // only called by peer thread
+    private void requestDownload() throws IOException {
         // if we're choked or there's already a download request to this peer,
         // we can't download
         if (areWeChoked() || requested) return;
@@ -177,47 +192,55 @@ public class Peer extends Thread {
     }
 
     /* =============== Packet Senders =============== */
-    private synchronized void sendChokePacket() throws IOException {
+    // potentially called by client thread using setDataChoke/setRandomChoke
+    private void sendChokePacket() throws IOException {
         // we're choking this peer
         Packet chokePacket = new Packet(Packet.PacketType.CHOKE, new byte[0]);
         sendPacket(chokePacket);
     }
 
-    private synchronized void sendUnchokePacket() throws IOException {
+    // potentially called by client thread using setDataChoke/setRandomChoke
+    private void sendUnchokePacket() throws IOException {
         // we're unchoking this peer
         Packet unchokePacket = new Packet(Packet.PacketType.UNCHOKE, new byte[0]);
         sendPacket(unchokePacket);
     }
 
-    private synchronized void sendRequestPacket(int pieceId) throws IOException {
-        Packet requestPacket = new Packet(Packet.PacketType.REQUEST, Packet.serializeInt(pieceId));
+    // only called by peer thread
+    private void sendRequestPacket(int pieceID) throws IOException {
+        Packet requestPacket = new Packet(Packet.PacketType.REQUEST, Packet.serializeInt(pieceID));
         sendPacket(requestPacket);
     }
 
-    private synchronized void sendPiecePacket(int pieceId, byte[] pieceArr) throws IOException {
+    // only called by peer thread
+    private void sendPiecePacket(int pieceId, byte[] pieceArr) throws IOException {
         byte[] payload = Packet.mergePayloads(Packet.serializeInt(pieceId), pieceArr);
         Packet piecePacket = new Packet(Packet.PacketType.PIECE, payload);
         sendPacket(piecePacket);
     }
 
-    private synchronized void sendBitfieldPacket() throws IOException {
-        byte[] payload = getClient().getBitfield().toByteArray();
+    // only called by peer thread
+    private void sendBitfieldPacket() throws IOException {
+        byte[] payload = getClient().getBitfieldArray();
         Packet bitPacket = new Packet(Packet.PacketType.BITFIELD, payload);
         sendPacket(bitPacket);
     }
 
-    private synchronized void sendInterestedPacket() throws IOException {
+    // only called by peer thread
+    private void sendInterestedPacket() throws IOException {
         Packet intPacket = new Packet(Packet.PacketType.INTERESTED, new byte[0]);
         sendPacket(intPacket);
     }
 
-    private synchronized void sendNotInterestedPacket() throws IOException {
+    // only called by peer thread
+    private void sendNotInterestedPacket() throws IOException {
         Packet nIntPacket = new Packet(Packet.PacketType.NOT_INTERESTED, new byte[0]);
         sendPacket(nIntPacket);
     }
 
     /* =============== Packet Handlers =============== */
-    private synchronized void handlePacket(Packet packet) throws IOException {
+    // only called by peer thread
+    private void handlePacket(Packet packet) throws IOException {
         switch (packet.getPacketType()) {
             case CHOKE:
                 handleChokePacket(packet);
@@ -293,39 +316,47 @@ public class Peer extends Thread {
         }
     }
 
-    private synchronized void handleHavePacket(Packet packet) throws IOException {
+    private void handleHavePacket(Packet packet) throws IOException {
         int pieceId = Packet.deserializeInt(packet.getPayload());
         Logger.INSTANCE.println("Peer <" + getClient().getClientID() + "> received the 'have' message from Peer <" + getPeerID() + "> for the piece <" + pieceId + ">");
-        bitfield.set(pieceId, true);
-        if (!getClient().getBitfield().get(pieceId)) {
+        synchronized (BITFIELD_LOCK) {
+            bitfield.set(pieceId, true);
+        }
+        if (!getClient().hasPiece(pieceId)) {
             sendInterestedPacket();
         }
     }
 
-    private synchronized void handleBitfieldPacket(Packet packet) throws IOException {
+    // handles only get called by peer thread
+    private void handleBitfieldPacket(Packet packet) throws IOException {
         byte[] payload = packet.getPayload();
-        bitfield = BitSet.valueOf(payload);
-        for (int bit = 0; bit < CommonConfig.getFileSize(); bit++) {
-            if (bitfield.get(bit) && !getClient().getBitfield().get(bit)) {
-                // peer has <bit> that we don't have
-                sendInterestedPacket();
-                break;
+        synchronized (BITFIELD_LOCK) {
+            bitfield = BitSet.valueOf(payload);
+            for (int piece = 0; piece < CommonConfig.getNumFilePieces(); piece++) {
+                if (bitfield.get(piece) && !getClient().hasPiece(piece)) {
+                    // peer has <bit> that we don't have
+                    sendInterestedPacket();
+                    break;
+                }
             }
         }
     }
 
-    private synchronized void handleInterestedPacket(Packet packet) throws IOException {
+    // handles only get called by peer thread
+    private void handleInterestedPacket(Packet packet) throws IOException {
         interested = true;
         Logger.INSTANCE.println("Peer <" + getClient().getClientID() + "> received the 'interested' message from Peer <" + getPeerID() + ">");
     }
 
-    private synchronized void handleNotInterestedPacket(Packet packet) throws IOException {
+    // handles only get called by peer thread
+    private void handleNotInterestedPacket(Packet packet) throws IOException {
         interested = false;
         Logger.INSTANCE.println("Peer <" + getClient().getClientID() + "> received the 'not interested' message from Peer <" + getPeerID() + ">");
     }
 
     /* =============== Base Packet Functions =============== */
     // this function blocks until it reads a full packet
+    // only gets called by peer thread
     private Packet readPacket() {
         try {
             int payloadLength = dis.readInt();
@@ -337,10 +368,13 @@ public class Peer extends Thread {
     }
 
     // this function sends a packet down the wire
-    private synchronized void sendPacket(Packet p) throws IOException {
-        dos.writeInt(p.getPayload().length);
-        dos.write(p.getPacketType().ordinal());
-        dos.write(p.getPayload(), 0, p.getPayload().length);
-        dos.flush();
+    // potentially can get called by different threads
+    private void sendPacket(Packet p) throws IOException {
+        synchronized (SOCKET_LOCK) {
+            dos.writeInt(p.getPayload().length);
+            dos.write(p.getPacketType().ordinal());
+            dos.write(p.getPayload(), 0, p.getPayload().length);
+            dos.flush();
+        }
     }
 }
