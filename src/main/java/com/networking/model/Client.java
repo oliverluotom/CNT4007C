@@ -58,10 +58,12 @@ public class Client implements Runnable {
                 fileMap[pieceIdx++] = pieceArr;
             }
         } else {
-            // fill in queue of missing pieces (all of them at the beginning)
+            ArrayList<Integer> toAdd = new ArrayList<Integer>();
             for (int i = 0; i < getNumFilePieces(); i++) {
-                pieceQueue.add(i);
+                toAdd.add(i);
             }
+            Collections.shuffle(toAdd);
+            pieceQueue.addAll(toAdd);
         }
     }
 
