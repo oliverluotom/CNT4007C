@@ -39,6 +39,8 @@ public class Peer extends Thread {
     private long totalBytesDownloaded = 0;
     private boolean interested = false; //initially not interested
 
+    private boolean requested = false;
+
    /************************************************************************
     * Interface                                                            *
     ************************************************************************/
@@ -143,6 +145,8 @@ public class Peer extends Thread {
                 Packet p = readPacket();
                 if (p == null) break;
                 handlePacket(p);
+                // request download after we read each packet
+                requestDownload();
             } while (true);
         } catch (IOException ex) {
             Bootstrap.stackExit(ex);
@@ -160,15 +164,16 @@ public class Peer extends Thread {
     ************************************************************************/
     /* =============== Network Commands =============== */
     private synchronized void requestDownload() throws IOException {
-        // TODO: Request download needs to be better.
-        // we should be able to guarantee there is only one request at a time,
-        // and that we send them whenever we can as long as we're unchoked
+        // if we're choked or there's already a download request to this peer,
+        // we can't download
+        if (areWeChoked() || requested) return;
         int requestPiece = getClient().getMissingPiece(bitfield);
         if (requestPiece == -1) {
             // this peer doesnt have a piece we need, or we're done.
             return;
         }
         sendRequestPacket(requestPiece);
+        requested = true;
     }
 
     /* =============== Packet Senders =============== */
@@ -255,7 +260,6 @@ public class Peer extends Thread {
         // in this case, we get a piece that we're missing and we request it!
         Logger.INSTANCE.println("Peer <" + getClient().getClientID() + "> is unchoked by Peer <" + getPeerID() + ">");
         setAreWeChoked(false);
-        requestDownload();
     }
 
     private synchronized void handleRequestPacket(Packet packet) throws IOException {
@@ -280,16 +284,12 @@ public class Peer extends Thread {
         }
         getClient().setPiece(pieceId, piece);
         totalBytesDownloaded += piece.length;
+        requested = false;
         int missing = getClient().getNumMissingPieces();
         int numPieces = CommonConfig.getNumFilePieces()-missing;
         Logger.INSTANCE.println("Peer <" + getClient().getClientID() + "> has downloaded the piece <" + pieceId + "> from Peer <" + getPeerID() + ">.\nNow the number of pieces it has is " + numPieces + ".");
         if (missing == 0) {
             Logger.INSTANCE.println("Peer <" + getClient().getClientID() + "> has downloaded the complete file.");
-        } else {
-            // if unchoked, try and download!
-            if (!areWeChoked()) {
-                requestDownload();
-            }
         }
     }
 
