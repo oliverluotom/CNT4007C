@@ -14,13 +14,20 @@ import static com.networking.config.CommonConfig.*;
  * Does all of the work for managing a single instance of the bittorrent client.
  */
 public class Client implements Runnable {
-
+   /************************************************************************
+    * Fields                                                               *
+    ************************************************************************/
     private final PeerConfig clientCfg;
     private final ArrayList<Peer> peers = new ArrayList<Peer>();
-    private final BitSet bitfield;
-    private final byte[][] fileMap;
+    
+    private final BitSet bitfield; //tracks which pieces we have
+    private final byte[][] fileMap; //each row is a piece
     private final Queue<Integer> pieceQueue = new LinkedList<Integer>();
 
+   /************************************************************************
+    * Interface                                                            *
+    ************************************************************************/
+    /* =============== Initializors =============== */
     public Client(PeerConfig clientCfg) {
         this.clientCfg = clientCfg;
         // initialize bitfield
@@ -30,7 +37,7 @@ public class Client implements Runnable {
             bitfield.flip(0, getFileSize());
             // set up fileMap (map of piece idx to the actual piece)
             int pieceIdx = 0;
-            for (int byteLo = 0; byteLo < getFileSize(); byteLo += getPieceSize()) {
+            for(int byteLo = 0; byteLo < getFileSize(); byteLo += getPieceSize()) {
                 // take [byteLo, byteLo+CommonConfig.getPieceSize()-1]
                 // len helps us for last byte[] that could be missing
                 int len = Math.min(getPieceSize(), getFileSize()-byteLo);
@@ -48,6 +55,7 @@ public class Client implements Runnable {
         }
     }
 
+    /* =============== Accessors =============== */
     public int getClientID() {
         return clientCfg.getPeerID();
     }
@@ -60,21 +68,13 @@ public class Client implements Runnable {
         if (pieceId >= fileMap.length) return null;
         return fileMap[pieceId];
     }
-
-    private synchronized int numPeersDone() {
-        int cnt = 0;
-        for (Peer p : peers) {
-            if (p.hasCompleteFile()) cnt++;
-        }
-        return cnt;
-    }
-
+    
     public synchronized int getNumMissingPieces() {
         int cnt = 0;
         for (int i = 0; i < fileMap.length; i++) if (fileMap[i] == null) cnt++;
         return cnt;
     }
-
+    
     public synchronized int getMissingPiece(BitSet bitfield) {
         int count = pieceQueue.size();
         while (count-->0) {
@@ -84,7 +84,16 @@ public class Client implements Runnable {
         }
         return -1;
     }
+    
+    public synchronized int numPeersDone() {
+        int cnt = 0;
+        for (Peer p : peers) {
+            if (p.hasCompleteFile()) cnt++;
+        }
+        return cnt;
+    }
 
+    /* =============== Mutators =============== */
     public synchronized void setPiece(int pieceId, byte[] pieceArr) {
         bitfield.set(pieceId, true);
         fileMap[pieceId] = pieceArr;
@@ -95,6 +104,11 @@ public class Client implements Runnable {
                 Bootstrap.stackExit(ex);
             }
         }
+    }
+    
+    public synchronized void addPeer(Peer peer) {
+        peers.add(peer);
+        peer.start();
     }
 
     public synchronized void dataUnchoke() {
@@ -145,12 +159,36 @@ public class Client implements Runnable {
             }
         }
     }
-
-    public synchronized void addPeer(Peer peer) {
-        peers.add(peer);
-        peer.start();
+    
+    /* =============== Behaviors =============== */
+    @Override
+    public void run() {
+        Logger.INSTANCE.println(
+                "Starting client with ID <" + getClientID() + 
+                "> on port <" + clientCfg.getPort() + ">");
+        connectToLowerPeers();
+        startDataUnchoker();
+        //startRandomUnchoker();
+        startShutdownThread();
+        // listen for higher peers
+        try {
+            ServerSocket server = new ServerSocket(clientCfg.getPort());
+            do {
+                Socket socket = server.accept();
+                Peer p = new Peer(socket, this);
+                addPeer(p);
+                Logger.INSTANCE.println("Peer <" + getClientID() + "> is connected from Peer <" + p.getPeerID() + ">");
+            } while(true);
+        } catch (Exception ex) {
+            Logger.INSTANCE.println("Error running server socket, terminating.");
+            Bootstrap.stackExit(ex);
+        }
     }
-
+    
+   /************************************************************************
+    * Private                                                              *
+    ************************************************************************/
+    /* =============== Connection =============== */
     private synchronized void connect(PeerConfig pConfig) throws IOException {
         // open socket to pConfig.
         Socket socket = new Socket(pConfig.getHost(), pConfig.getPort());
@@ -158,10 +196,9 @@ public class Client implements Runnable {
         addPeer(p);
         Logger.INSTANCE.println("Peer <" + getClientID() + "> makes a connection to Peer <" + p.getPeerID() + ">");
     }
-
-    public void run() {
-        Logger.INSTANCE.println("Starting client with ID <" + getClientID() + "> on port <" + clientCfg.getPort() + ">");
-        // connect to lower peers
+    
+    /* =============== Run Subtasks =============== */
+    private void connectToLowerPeers(){
         for (PeerConfig pConfig : PeerConfig.PEER_CONFIGS) {
             if (pConfig.getPeerID() < clientCfg.getPeerID()) {
                 try {
@@ -173,7 +210,9 @@ public class Client implements Runnable {
                 }
             }
         }
-        // start data choker
+    }
+    
+    private void startDataUnchoker(){
         new Thread("Data Unchoker") {
             long lastChoke = 0;
             public void run() {
@@ -189,8 +228,10 @@ public class Client implements Runnable {
                 }
             }
         }.start();
-        // start random unchoker
-        /*new Thread("Random Unchoker") {
+    }
+    
+    private void startRandomUnchoker(){
+        new Thread("Random Unchoker") {
             long lastChoke = System.currentTimeMillis();
             public void run() {
                 while (true) {
@@ -204,8 +245,10 @@ public class Client implements Runnable {
                     } catch (InterruptedException ex) { continue; }
                 }
             }
-        }.start();*/
-        // start shutdown Thread
+        }.start();
+    }
+    
+    private void startShutdownThread(){
         new Thread("Shutdown") {
             public void run() {
                 while (true) {
@@ -219,18 +262,5 @@ public class Client implements Runnable {
                 }
             }
         }.start();
-        // listen for higher peers
-        try {
-            ServerSocket server = new ServerSocket(clientCfg.getPort());
-            do {
-                Socket socket = server.accept();
-                Peer p = new Peer(socket, this);
-                addPeer(p);
-                Logger.INSTANCE.println("Peer <" + getClientID() + "> is connected from Peer <" + p.getPeerID() + ">");
-            } while(true);
-        } catch (Exception ex) {
-            Logger.INSTANCE.println("Error running server socket, terminating.");
-            Bootstrap.stackExit(ex);
-        }
     }
 }
