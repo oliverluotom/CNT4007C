@@ -1,11 +1,12 @@
 package com.networking.config;
 
+import com.networking.Bootstrap;
 import java.io.*;
 import java.util.*;
 
 public class CommonConfig {
 
-    private static final String CFG_FILE_PATH = "/Common.cfg";
+    private static final String CFG_FILE_PATH = "./Common.cfg";
     private static final String PREF_NEIGHBORS = "NumberOfPreferredNeighbors";
     private static final String DATA_UNCHOKE = "UnchokingInterval";
     private static final String RANDOM_UNCHOKE = "OptimisticUnchokingInterval";
@@ -18,8 +19,13 @@ public class CommonConfig {
     private static byte[] file = null;
 
     static {
-        Scanner sc =
-            new Scanner(CommonConfig.class.getResourceAsStream(CFG_FILE_PATH));
+        Scanner sc = null;
+        try{
+            sc = new Scanner(new File(CFG_FILE_PATH));
+        }
+        catch(FileNotFoundException e){
+            Bootstrap.stackExit(e);
+        }
         while (sc.hasNext()) {
             String key = sc.next();
             String value = sc.next();
@@ -57,7 +63,7 @@ public class CommonConfig {
         // only read the file once
         if (file == null) {
             try {
-                InputStream is = CommonConfig.class.getResourceAsStream("/" + fileName);
+                InputStream is = new FileInputStream("./" + fileName);
                 file = new byte[fileSize];
                 is.read(file);
             } catch (IOException ex) { }
@@ -75,5 +81,9 @@ public class CommonConfig {
 
     public static int getPieceSize() {
         return pieceSize;
+    }
+    
+    public static String getFileName() {
+        return fileName;
     }
 }

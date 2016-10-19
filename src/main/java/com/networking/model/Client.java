@@ -9,6 +9,7 @@ import java.net.*;
 import java.util.*;
 
 import static com.networking.config.CommonConfig.*;
+import java.nio.charset.Charset;
 
 /**
  * Does all of the work for managing a single instance of the bittorrent client.
@@ -237,6 +238,29 @@ public class Client implements Runnable {
         Logger.INSTANCE.println("Peer <" + getClientID() + "> makes a connection to Peer <" + p.getPeerID() + ">");
     }
 
+    /* =============== File Output =============== */
+    private void writeFile(){
+        File out = new File(
+                "./peer_"+clientCfg.getPeerID()+"/"+CommonConfig.getFileName());
+        out.getParentFile().mkdirs();
+        FileOutputStream outStream = null;
+        try{
+            outStream = new FileOutputStream(out);
+        }
+        catch(IOException e){
+            Bootstrap.stackExit(e);
+        }
+        for(int i = 0; i < fileMap.length; ++i){
+            try{
+                /* Right now we are writing bytes to a file. */
+                outStream.write(fileMap[i]);
+            }
+            catch(IOException e){
+                Bootstrap.stackExit(e);
+            }
+        }
+    }
+    
     /* =============== Run Subtasks =============== */
     private void connectToLowerPeers() {
         for (PeerConfig pConfig : PeerConfig.PEER_CONFIGS) {
@@ -292,8 +316,9 @@ public class Client implements Runnable {
         new Thread("Shutdown Thread") {
             public void run() {
                 while (true) {
-                    if (numPeersDone() == PeerConfig.PEER_CONFIGS.size()-1) {
+                    if (getNumMissingPieces() == 0 && numPeersDone() == PeerConfig.PEER_CONFIGS.size()-1) {
                         Logger.INSTANCE.println("Peer <" + getClientID() + "> terminating since all peers are done downloading.");
+                        writeFile();
                         System.exit(0);
                     }
                     try {

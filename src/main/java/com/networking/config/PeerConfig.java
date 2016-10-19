@@ -1,16 +1,24 @@
 package com.networking.config;
 
+import com.networking.Bootstrap;
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.util.*;
 
 public class PeerConfig {
 
-    private static final String CFG_FILE_PATH = "/PeerInfo.cfg";
+    private static final String CFG_FILE_PATH = "./PeerInfo.cfg";
     public static final ArrayList<PeerConfig> PEER_CONFIGS
         = new ArrayList<PeerConfig>();
 
     static {
-        Scanner sc =
-            new Scanner(CommonConfig.class.getResourceAsStream(CFG_FILE_PATH));
+        Scanner sc = null;
+        try{
+            sc = new Scanner(new File(CFG_FILE_PATH));
+        }
+        catch(FileNotFoundException e){
+            Bootstrap.stackExit(e);
+        }
         while (sc.hasNextLine()) {
             PeerConfig conf = parseConfig(sc.nextLine());
             if (conf == null) continue;

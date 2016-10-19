@@ -1,3 +1,7 @@
+### Manual Entries ###
+project_root/*.log
+project_root/peer_*
+runPeers.bat
 
 # Created by https://www.gitignore.io/api/java,maven,macos
 
