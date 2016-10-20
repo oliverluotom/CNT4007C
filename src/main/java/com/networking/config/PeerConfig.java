@@ -1,8 +1,8 @@
 package com.networking.config;
 
 import com.networking.Bootstrap;
-import java.io.File;
-import java.io.FileNotFoundException;
+
+import java.io.*;
 import java.util.*;
 
 public class PeerConfig {
@@ -13,10 +13,9 @@ public class PeerConfig {
 
     static {
         Scanner sc = null;
-        try{
+        try {
             sc = new Scanner(new File(CFG_FILE_PATH));
-        }
-        catch(FileNotFoundException e){
+        } catch (FileNotFoundException e){
             Bootstrap.stackExit(e);
         }
         while (sc.hasNextLine()) {

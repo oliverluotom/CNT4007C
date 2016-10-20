@@ -14,9 +14,6 @@ import java.util.*;
  * Handles a peer that we're connected to.
  */
 public class Peer extends Thread {
-   /************************************************************************
-    * Fields                                                               *
-    ************************************************************************/
     private static final Charset ASCII = Charset.forName("US-ASCII");
     private static final String HANDSHAKE_HEADER_STR = "P2PFILESHARINGPROJ";
     private static final byte[] HANDSHAKE_HEADER_BYTES =
@@ -32,22 +29,18 @@ public class Peer extends Thread {
 
     private long timeCreated = System.currentTimeMillis();
     private final Object BITFIELD_LOCK = new Object();
-    private BitSet bitfield = new BitSet(); //tracks which pieces peer has
+    private BitSet bitfield = new BitSet(); // tracks which pieces peer has
 
     private final Object CHOKE_LOCK = new Object();
-    private boolean dataChoked = true; //initially everyone is data choked
-    private boolean randomChoked = true; //initially everyone is randomly choked
-    private boolean areWeChoked = true; //has this peer choked our client
+    private boolean dataChoked = true; // initially everyone is data choked
+    private boolean randomChoked = true; // initially everyone is randomly choked
+    private boolean areWeChoked = true; // has this peer choked our client
 
     private long totalBytesDownloaded = 0;
-    private boolean interested = false; //initially not interested
+    private boolean interested = false; // initially not interested
 
-    private boolean requested = false;
+    private boolean requested = false; // initially no pieces requested
 
-   /************************************************************************
-    * Interface                                                            *
-    ************************************************************************/
-    /* =============== Initializors =============== */
     public Peer(Socket sock, Client client) throws IOException {
         this.client = client;
         dos = new DataOutputStream(sock.getOutputStream());
@@ -69,7 +62,6 @@ public class Peer extends Thread {
         peerID = dis.readInt();
     }
 
-    /* =============== Accessors =============== */
     public int getPeerID() {
         return peerID;
     }
@@ -104,7 +96,6 @@ public class Peer extends Thread {
         }
     }
 
-    /* =============== Mutators =============== */
     // only gets called by Peer thread
     public void setAreWeChoked(boolean val) {
         areWeChoked = val;
@@ -116,16 +107,14 @@ public class Peer extends Thread {
             dataChoked = val;
             boolean isNewChoked = isChoked();
 
-            // TODO: May need to make this a "refreshChoke()" function (to avoid weirdness).
-            // Actually, probably not.
             if (isOldChoked && !isNewChoked) {
-                //unchoking, we reset timer/downloaded bytes since
-                //download rate wants for LAST unchoked interval
+                // unchoking, we reset timer/downloaded bytes since
+                // download rate wants for LAST unchoked interval
                 totalBytesDownloaded = 0;
                 timeCreated = System.currentTimeMillis();
                 sendUnchokePacket();
             } else if (!isOldChoked && isNewChoked) {
-                //choking
+                // choking
                 sendChokePacket();
             }
         }
@@ -137,18 +126,17 @@ public class Peer extends Thread {
             randomChoked = val;
             boolean isNewChoked = isChoked();
             if (isOldChoked && !isNewChoked) {
-                //unchoking, we reset timer/downloaded bytes since
-                //download rate wants for LAST unchoked interval
+                // unchoking, we reset timer/downloaded bytes since
+                // download rate wants for LAST unchoked interval
                 totalBytesDownloaded = 0;
                 sendUnchokePacket();
             } else if (!isOldChoked && isNewChoked) {
-                //choking
+                // choking
                 sendChokePacket();
             }
         }
     }
 
-    /* =============== Behaviors =============== */
     @Override
     public void run() {
         try {
@@ -173,10 +161,6 @@ public class Peer extends Thread {
         sendPacket(havePacket);
     }
 
-   /************************************************************************
-    * Private                                                              *
-    ************************************************************************/
-    /* =============== Network Commands =============== */
     // only called by peer thread
     private void requestDownload() throws IOException {
         // if we're choked or there's already a download request to this peer,
@@ -191,7 +175,6 @@ public class Peer extends Thread {
         requested = true;
     }
 
-    /* =============== Packet Senders =============== */
     // potentially called by client thread using setDataChoke/setRandomChoke
     private void sendChokePacket() throws IOException {
         // we're choking this peer
@@ -238,7 +221,6 @@ public class Peer extends Thread {
         sendPacket(nIntPacket);
     }
 
-    /* =============== Packet Handlers =============== */
     // only called by peer thread
     private void handlePacket(Packet packet) throws IOException {
         switch (packet.getPacketType()) {
@@ -354,7 +336,6 @@ public class Peer extends Thread {
         Logger.INSTANCE.println("Peer <" + getClient().getClientID() + "> received the 'not interested' message from Peer <" + getPeerID() + ">");
     }
 
-    /* =============== Base Packet Functions =============== */
     // this function blocks until it reads a full packet
     // only gets called by peer thread
     private Packet readPacket() {

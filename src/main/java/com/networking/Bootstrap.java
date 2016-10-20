@@ -1,19 +1,19 @@
 package com.networking;
 
 import com.networking.config.*;
-import com.networking.misc.Logger;
+import com.networking.misc.*;
 import com.networking.model.*;
 
 /**
  * Starts up a BitTorrent client with the given peer id.
  */
 public class Bootstrap {
-    public static final boolean DEBUG = true;
+    public static final boolean DEBUG = false;
 
     public static void main(String[] args) {
-        /* Look through the peer configs for our config */
+        // Look through the peer configs for our config
         PeerConfig clientCfg = null;
-        int peerId = -1; //doesn't matter what initial value is
+        int peerId = -1;
         try {
             peerId = Integer.parseInt(args[0]);
             for (PeerConfig cfg : PeerConfig.PEER_CONFIGS) {
@@ -27,11 +27,12 @@ public class Bootstrap {
             if (clientCfg == null) throw new Exception();
         } catch (Exception ex) {
             System.out.println("Example Usage: <run program> [peerId]");
-            System.exit(1);
+            Bootstrap.stackExit(ex);
         }
-        /* Give the logger our id for log file creation */
+        // Give the logger our id for log file creation
         Logger.INSTANCE.giveID(peerId);
-        /* Create and run the client with its config */
+
+        // Create and run the client with its config
         Client cl = new Client(clientCfg);
         cl.run();
     }

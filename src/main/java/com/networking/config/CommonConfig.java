@@ -1,6 +1,7 @@
 package com.networking.config;
 
 import com.networking.Bootstrap;
+
 import java.io.*;
 import java.util.*;
 
@@ -20,10 +21,9 @@ public class CommonConfig {
 
     static {
         Scanner sc = null;
-        try{
+        try {
             sc = new Scanner(new File(CFG_FILE_PATH));
-        }
-        catch(FileNotFoundException e){
+        } catch (FileNotFoundException e){
             Bootstrap.stackExit(e);
         }
         while (sc.hasNext()) {
@@ -82,7 +82,7 @@ public class CommonConfig {
     public static int getPieceSize() {
         return pieceSize;
     }
-    
+
     public static String getFileName() {
         return fileName;
     }

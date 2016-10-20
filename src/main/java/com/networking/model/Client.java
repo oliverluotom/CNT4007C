@@ -6,18 +6,15 @@ import com.networking.misc.*;
 
 import java.io.*;
 import java.net.*;
+import java.nio.charset.*;
 import java.util.*;
 
 import static com.networking.config.CommonConfig.*;
-import java.nio.charset.Charset;
 
 /**
  * Does all of the work for managing a single instance of the bittorrent client.
  */
 public class Client implements Runnable {
-   /************************************************************************
-    * Fields                                                               *
-    ************************************************************************/
     private final PeerConfig clientCfg;
     private final ArrayList<Peer> peers = new ArrayList<Peer>();
 
@@ -27,10 +24,6 @@ public class Client implements Runnable {
 
     private final Queue<Integer> pieceQueue = new LinkedList<Integer>();
 
-   /************************************************************************
-    * Interface                                                            *
-    ************************************************************************/
-    /* =============== Initializors =============== */
     public Client(PeerConfig clientCfg) {
         this.clientCfg = clientCfg;
 
@@ -38,24 +31,24 @@ public class Client implements Runnable {
         fileMap = new byte[getNumFilePieces()][];
 
         if (clientCfg.hasFile()) {
-            /* Set the entire bitfield because we have every piece */
+            // Set the entire bitfield because we have every piece
             piecesObtained.flip(0, getNumFilePieces());
-            /* Set up the fileMap (map of piece idx to the actual piece) */
+            // Set up the fileMap (map of piece idx to the actual piece)
             for(int byteLo = 0, pieceIdx = 0;
                     byteLo < getFileSize();
                     byteLo += getPieceSize()) {
                 /*
-                 * Take [byteLo, byteLo+len-1] for the current piece.
-                 * len is always getPieceSize() for all but the last piece.
-                 * The last piece may be smaller than the piece size if the
-                 * file is not divisible by the piece size
+                 Take [byteLo, byteLo+len-1] for the current piece.
+                 len is always getPieceSize() for all but the last piece.
+                 The last piece may be smaller than the piece size if the
+                 file is not divisible by the piece size
                  */
                 int len = Math.min(getPieceSize(), getFileSize()-byteLo);
                 byte[] pieceArr = new byte[len];
                 for (int bytePtr = byteLo; bytePtr < (byteLo+len); bytePtr++) {
                     pieceArr[bytePtr-byteLo] = getFile()[bytePtr];
                 }
-                /* Store the current piece in the file map */
+                // Store the current piece in the file map
                 fileMap[pieceIdx++] = pieceArr;
             }
         } else {
@@ -68,7 +61,6 @@ public class Client implements Runnable {
         }
     }
 
-    /* =============== Accessors =============== */
     public int getClientID() {
         return clientCfg.getPeerID();
     }
@@ -120,7 +112,6 @@ public class Client implements Runnable {
         return cnt;
     }
 
-    /* =============== Mutators =============== */
     public void setPiece(int pieceID, byte[] pieceArr) {
         // set piece stuff
         synchronized (BITFIELD_LOCK) {
@@ -146,7 +137,6 @@ public class Client implements Runnable {
         peer.start();
     }
 
-    //placeholder for matt k.
     public void dataUnchoke() {
         // will be called by a timer asynchronously
         TreeMap<Double, Peer> rateMap = new TreeMap<Double, Peer>(Collections.reverseOrder());
@@ -164,11 +154,11 @@ public class Client implements Runnable {
         try {
             for (Map.Entry<Double, Peer> ent : rateMap.entrySet()) {
                 if (idx < getPreferredCount()) {
-                    //unchoke
+                    // unchoke
                     ent.getValue().setDataChoke(false);
                     neighborIDs.add(ent.getValue().getPeerID());
                 } else {
-                    //choke
+                    // choke
                     ent.getValue().setDataChoke(true);
                 }
                 idx++;
@@ -201,7 +191,6 @@ public class Client implements Runnable {
         }
     }
 
-    /* =============== Behaviors =============== */
     @Override
     public void run() {
         Logger.INSTANCE.println(
@@ -226,10 +215,6 @@ public class Client implements Runnable {
         }
     }
 
-   /************************************************************************
-    * Private                                                              *
-    ************************************************************************/
-    /* =============== Connection =============== */
     private void connect(PeerConfig pConfig) throws IOException {
         // open socket to pConfig.
         Socket socket = new Socket(pConfig.getHost(), pConfig.getPort());
@@ -238,30 +223,22 @@ public class Client implements Runnable {
         Logger.INSTANCE.println("Peer <" + getClientID() + "> makes a connection to Peer <" + p.getPeerID() + ">");
     }
 
-    /* =============== File Output =============== */
-    private void writeFile(){
+    private void writeFile() {
         File out = new File(
-                "./peer_"+clientCfg.getPeerID()+"/"+CommonConfig.getFileName());
+                "./peer_" + clientCfg.getPeerID() + "/" + CommonConfig.getFileName());
         out.getParentFile().mkdirs();
-        FileOutputStream outStream = null;
-        try{
-            outStream = new FileOutputStream(out);
-        }
-        catch(IOException e){
+        try {
+            FileOutputStream outstream = new FileOutputStream(out);
+            for(int i = 0; i < fileMap.length; i++) {
+                // write i-th piece to file
+                outstream.write(fileMap[i]);
+            }
+            outstream.close();
+        } catch (IOException e) {
             Bootstrap.stackExit(e);
         }
-        for(int i = 0; i < fileMap.length; ++i){
-            try{
-                /* Right now we are writing bytes to a file. */
-                outStream.write(fileMap[i]);
-            }
-            catch(IOException e){
-                Bootstrap.stackExit(e);
-            }
-        }
     }
-    
-    /* =============== Run Subtasks =============== */
+
     private void connectToLowerPeers() {
         for (PeerConfig pConfig : PeerConfig.PEER_CONFIGS) {
             if (pConfig.getPeerID() < clientCfg.getPeerID()) {
